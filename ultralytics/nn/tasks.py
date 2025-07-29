@@ -24,6 +24,7 @@ from ultralytics.nn.modules import (
     SPP,
     SPPELAN,
     SPPF,
+    # FDConv,
     A2C2f,
     AConv,
     ADown,
@@ -47,6 +48,8 @@ from ultralytics.nn.modules import (
     DWConv,
     DWConvTranspose2d,
     Focus,
+    # FDConv, # Add FDConv
+    # LEG_Module,
     GhostBottleneck,
     GhostConv,
     HGBlock,
