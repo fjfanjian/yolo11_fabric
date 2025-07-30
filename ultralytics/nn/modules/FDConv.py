@@ -8,6 +8,15 @@ import math
 import warnings
 warnings.filterwarnings('ignore')
 
+# 导入autopad函数
+def autopad(k, p=None, d=1):  # kernel, padding, dilation
+    """Pad to 'same' shape outputs."""
+    if d > 1:
+        k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]  # actual kernel-size
+    if p is None:
+        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
+    return p
+
 #论文;https://arxiv.org/abs/2503.18783
 
 '''
@@ -476,7 +485,14 @@ def get_fft2freq(d1, d2, use_rfft=False):
 # @CONV_LAYERS.register_module() # for mmdet, mmseg
 class FDConv(nn.Conv2d):
     def __init__(self,
-                 *args,
+                 in_channels,
+                 out_channels,
+                 kernel_size,
+                 stride=1,
+                 padding=None,
+                 dilation=1,
+                 groups=1,
+                 bias=False,
                  reduction=0.0625,
                  kernel_num=4,
                  use_fdconv_if_c_gt=16,  # if channel greater or equal to 16, e.g., 64, 128, 256, 512
@@ -506,9 +522,14 @@ class FDConv(nn.Conv2d):
                      'init': 'zero',
                      'global_selection': False,
                  },
+                 debug=False,  # 添加调试开关
                  **kwargs,
                  ):
-        super().__init__(*args, **kwargs)
+        # 使用autopad函数处理padding
+        if padding is None:
+            padding = autopad(kernel_size, padding, dilation)
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.debug = debug  # 保存调试开关
         self.use_fdconv_if_c_gt = use_fdconv_if_c_gt
         self.use_fdconv_if_k_in = use_fdconv_if_k_in
         self.kernel_num = kernel_num
@@ -518,6 +539,15 @@ class FDConv(nn.Conv2d):
         self.att_multi = att_multi
         self.spatial_freq_decompose = spatial_freq_decompose
         self.use_fbm_if_k_in = use_fbm_if_k_in
+        
+        # 调试信息：打印初始化参数
+        if self.debug:
+            print(f"[FDConv Debug] 初始化参数:")
+            print(f"  - 输入通道: {self.in_channels}, 输出通道: {self.out_channels}")
+            print(f"  - 卷积核大小: {self.kernel_size}, 步长: {self.stride}")
+            print(f"  - kernel_num: {kernel_num}, param_ratio: {param_ratio}")
+            print(f"  - use_fdconv_if_c_gt: {use_fdconv_if_c_gt}")
+            print(f"  - use_ksm_local: {use_ksm_local}")
 
         self.ksm_local_act = ksm_local_act
         self.ksm_global_act = ksm_global_act
@@ -536,6 +566,8 @@ class FDConv(nn.Conv2d):
                          self.in_channels) // 2 * self.kernel_num * self.param_ratio / param_reduction
         if min(self.in_channels, self.out_channels) <= self.use_fdconv_if_c_gt or self.kernel_size[
             0] not in self.use_fdconv_if_k_in:
+            if self.debug:
+                print(f"[FDConv Debug] 使用标准卷积 (通道数: {min(self.in_channels, self.out_channels)}, 卷积核: {self.kernel_size[0]})")
             return
         self.KSM_Global = KernelSpatialModulation_Global(self.in_channels, self.out_channels, self.kernel_size[0],
                                                          groups=self.groups,
@@ -548,15 +580,21 @@ class FDConv(nn.Conv2d):
                                                          act_type=self.ksm_global_act,
                                                          att_grid=att_grid, stride=self.stride,
                                                          spatial_freq_decompose=spatial_freq_decompose)
+        if self.debug:
+            print(f"[FDConv Debug] 创建KSM_Global模块 (kernel_num: {self.kernel_num * self.param_ratio})")
 
         if self.kernel_size[0] in use_fbm_if_k_in:
             self.FBM = FrequencyBandModulation(self.in_channels, **fbm_cfg)
+            if self.debug:
+                print(f"[FDConv Debug] 创建FBM模块 (卷积核大小: {self.kernel_size[0]})")
             # self.FBM = OctaveFrequencyAttention(2 * self.in_channels // 16, **fbm_cfg)
             # self.channel_comp = ChannelPool(reduction=16)
 
         if self.use_ksm_local:
             self.KSM_Local = KernelSpatialModulation_Local(channel=self.in_channels, kernel_num=1, out_n=int(
                 self.out_channels * self.kernel_size[0] * self.kernel_size[1]))
+            if self.debug:
+                print(f"[FDConv Debug] 创建KSM_Local模块")
 
         self.linear_mode = linear_mode
         self.convert2dftweight(convert_param)
@@ -601,13 +639,32 @@ class FDConv(nn.Conv2d):
         return weight_rfft
 
     def forward(self, x):
+        if self.debug:
+            print(f"[FDConv Debug] Forward开始 - 输入形状: {x.shape}")
+            
         if min(self.in_channels, self.out_channels) <= self.use_fdconv_if_c_gt or self.kernel_size[0] not in self.use_fdconv_if_k_in:
-            return super().forward(x)
+            if self.debug:
+                print(f"[FDConv Debug] 使用标准卷积进行前向传播")
+            # 确保在AMP模式下类型兼容性
+            return F.conv2d(x, self.weight.to(x.dtype), self.bias.to(x.dtype) if self.bias is not None else None, 
+                          self.stride, self.padding, self.dilation, self.groups)
         global_x = F.adaptive_avg_pool2d(x, 1)
+        if self.debug:
+            print(f"[FDConv Debug] 全局池化后形状: {global_x.shape}")
+            
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.KSM_Global(global_x)
+        if self.debug:
+            print(f"[FDConv Debug] 注意力机制输出:")
+            print(f"  - channel_attention: {channel_attention.shape if hasattr(channel_attention, 'shape') else type(channel_attention)}")
+            print(f"  - filter_attention: {filter_attention.shape if hasattr(filter_attention, 'shape') else type(filter_attention)}")
+            print(f"  - spatial_attention: {spatial_attention.shape if hasattr(spatial_attention, 'shape') else type(spatial_attention)}")
+            print(f"  - kernel_attention: {kernel_attention.shape if hasattr(kernel_attention, 'shape') else type(kernel_attention)}")
         if self.use_ksm_local:
             # global_x_std = torch.std(x, dim=(-1, -2), keepdim=True) # print(来自b站up:Ai缝合怪)
             hr_att_logit = self.KSM_Local(global_x)  # b, kn, cin, cout * ratio, k1*k2,
+            if self.debug:
+                print(f"[FDConv Debug] KSM_Local输出形状: {hr_att_logit.shape}")
+                
             hr_att_logit = hr_att_logit.reshape(x.size(0), 1, self.in_channels, self.out_channels, self.kernel_size[0],
                                                 self.kernel_size[1])
             # hr_att_logit = hr_att_logit + self.hr_cin_bias[None, None, :, None, None, None] + self.hr_cout_bias[None, None, None, :, None, None] + self.hr_spatial_bias[None, None, None, None, :, :] # print(来自b站up:Ai缝合怪)
@@ -618,8 +675,12 @@ class FDConv(nn.Conv2d):
                 hr_att = 1 + hr_att_logit.tanh()
             else:
                 raise NotImplementedError
+            if self.debug:
+                print(f"[FDConv Debug] 局部注意力hr_att形状: {hr_att.shape}")
         else:
             hr_att = 1
+            if self.debug:
+                print(f"[FDConv Debug] 未使用局部注意力，hr_att = 1")
         b = x.size(0)
         batch_size, in_planes, height, width = x.size()
         DFT_map = torch.zeros(
@@ -651,18 +712,34 @@ class FDConv(nn.Conv2d):
         adaptive_weights = adaptive_weights.permute(0, 1, 2, 4, 3, 5)
         # print(来自b站up:Ai缝合怪)
         if hasattr(self, 'FBM'):
+            if self.debug:
+                print(f"[FDConv Debug] 应用FBM前输入形状: {x.shape}")
             x = self.FBM(x)
+            if self.debug:
+                print(f"[FDConv Debug] 应用FBM后输出形状: {x.shape}")
             # x = self.FBM(x, self.channel_comp(x))
 
-        if self.out_channels * self.in_channels * self.kernel_size[0] * self.kernel_size[1] < (
-                in_planes + self.out_channels) * height * width:
+        computation_cost = self.out_channels * self.in_channels * self.kernel_size[0] * self.kernel_size[1]
+        memory_cost = (in_planes + self.out_channels) * height * width
+        
+        if self.debug:
+            print(f"[FDConv Debug] 计算成本比较: {computation_cost} vs {memory_cost}")
+            print(f"[FDConv Debug] 自适应权重形状: {adaptive_weights.shape}")
+            
+        if computation_cost < memory_cost:
+            if self.debug:
+                print(f"[FDConv Debug] 使用计算优化路径")
             # print(channel_attention.shape, filter_attention.shape, hr_att.shape)
             aggregate_weight = spatial_attention * channel_attention * filter_attention * adaptive_weights * hr_att
             # aggregate_weight = spatial_attention * channel_attention * adaptive_weights * hr_att
             aggregate_weight = torch.sum(aggregate_weight, dim=1)
+            if self.debug:
+                print(f"[FDConv Debug] 聚合权重形状: {aggregate_weight.shape}")
             # print(aggregate_weight.abs().max()) # print(来自b站up:Ai缝合怪)
             aggregate_weight = aggregate_weight.view(
                 [-1, self.in_channels // self.groups, self.kernel_size[0], self.kernel_size[1]])
+            # 确保权重和输入的数据类型一致（AMP兼容性）
+            aggregate_weight = aggregate_weight.to(x.dtype)
             x = x.reshape(1, -1, height, width)
             output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
                               dilation=self.dilation, groups=self.groups * batch_size)
@@ -672,12 +749,16 @@ class FDConv(nn.Conv2d):
                 output = output.view(batch_size, self.out_channels, output.size(-2),
                                      output.size(-1))  # * filter_attention.reshape(b, -1, 1, 1) # print(来自b站up:Ai缝合怪)
         else:
+            if self.debug:
+                print(f"[FDConv Debug] 使用内存优化路径")
             aggregate_weight = spatial_attention * adaptive_weights * hr_att
             aggregate_weight = torch.sum(aggregate_weight, dim=1)
             if not isinstance(channel_attention, float):
                 x = x * channel_attention.view(b, -1, 1, 1)
             aggregate_weight = aggregate_weight.view(
                 [-1, self.in_channels // self.groups, self.kernel_size[0], self.kernel_size[1]])
+            # 确保权重和输入的数据类型一致（AMP兼容性）
+            aggregate_weight = aggregate_weight.to(x.dtype)
             x = x.reshape(1, -1, height, width)
             output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
                               dilation=self.dilation, groups=self.groups * batch_size)
@@ -689,6 +770,11 @@ class FDConv(nn.Conv2d):
                                      output.size(-1)) * filter_attention.view(b, -1, 1, 1)
         if self.bias is not None:
             output = output + self.bias.view(1, -1, 1, 1)
+            
+        if self.debug:
+            print(f"[FDConv Debug] Forward结束 - 输出形状: {output.shape}")
+            print(f"[FDConv Debug] " + "="*50)
+            
         return output
 
     def profile_module(
@@ -713,14 +799,14 @@ class FDConv(nn.Conv2d):
 if __name__ == "__main__":
     # 创建一个 FDConv 实例
     fdconv = FDConv(
-        in_channels=64,       # 输入通道数
-        out_channels=128,     # 输出通道数
+        in_channels=16,       # 输入通道数
+        out_channels=32,     # 输出通道数
         kernel_size=3,        # 卷积核大小
         stride=2,             # 步长
         padding=1,            # 填充
     )
     # 创建一个随机输入张量 (batch_size=4, channels=64, height=32, width=32)
-    input = torch.randn(4, 64, 32, 32)
+    input = torch.randn(4, 16, 32, 32)
     # 前向传播
     output = fdconv(input)
     # 打印输出形状

@@ -10,21 +10,22 @@ def check_cuda():
 def main():
     warnings.filterwarnings("ignore", category=UserWarning)
     # model = YOLO("yolo11n.yaml")  # build a new model from YAML
-    model = YOLO("best.pt")
+    model = YOLO("yolo11n-obb-fdconv.yaml")
     # Train the model
     model.train(data="FabricDefect-tianchi.yaml",
-                epochs=300,
+                epochs=600,
                 imgsz=640,
-                freeze=10,
-                batch=-1,
+                # freeze=10,
+                batch=64,
                 val=True,
                 workers=8,
                 patience=100,
                 device=0,
-                multi_scale=True,
+                # multi_scale=True,
                 cfg="fdd_cfg.yaml",
                 project="runs",
-                name="train_results"
+                name="train_results",
+                amp=False,
                 )
 
 
