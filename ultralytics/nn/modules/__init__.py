@@ -76,7 +76,7 @@ from .conv import (
     RepConv,
     SpatialAttention,
 )
-# from .FDConv import FDConv
+from .FDConv import FDConv
 # from .LEG import LEG_Module
 from .head import (
     OBB,

@@ -48,7 +48,7 @@ from ultralytics.nn.modules import (
     DWConv,
     DWConvTranspose2d,
     Focus,
-    # FDConv, # Add FDConv
+    FDConv, # Add FDConv
     # LEG_Module,
     GhostBottleneck,
     GhostConv,
