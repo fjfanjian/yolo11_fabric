@@ -4,7 +4,7 @@ import torch.multiprocessing as mp
 
 # Load a model
 def main():
-    model = YOLO("runs/obb/yolov8-obb-25627/weights/best.pt")  # load a custom model
+    model = YOLO("runs/cls/train_results6/weights/best.pt")  # load a custom model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
@@ -14,11 +14,10 @@ def main():
     torch.backends.cudnn.benchmark = False
 
     # Validate the model
-    metrics = model.val(data='FabricDefect-tianchi.yaml')  # no arguments needed, dataset and settings remembered
-    metrics.box.map  # map50-95
-    metrics.box.map50  # map50
-    metrics.box.map75  # map75
-    metrics.box.maps  # a list contains map50-95 of each category
+    metrics = model.val(data='/home/wh/fj/Datasets/fabric-defect/fabric-lisheng-cls-250731/split_dataset')  # no arguments needed, dataset and settings remembered
+    print(f"Top-1 Accuracy: {metrics.top1:.4f}")  # top-1 accuracy
+    print(f"Top-5 Accuracy: {metrics.top5:.4f}")  # top-5 accuracy
+    print(f"Speed: {metrics.speed}")  # speed metrics
 
 if __name__ == '__main__':
     mp.set_start_method('spawn', force=True)

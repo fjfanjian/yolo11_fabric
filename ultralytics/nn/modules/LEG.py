@@ -3,9 +3,29 @@ from typing import List
 import torch
 import torch.nn as nn
 import math
-
-from mmcv.cnn.bricks import DropPath
 from torch import Tensor
+
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
+    
+    Args:
+        drop_prob: float, drop path probability
+    """
+    def __init__(self, drop_prob=0.):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        if self.drop_prob == 0. or not self.training:
+            return x
+        keep_prob = 1 - self.drop_prob
+        # work with diff dim tensors, not just 2D ConvNets
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+        random_tensor.floor_()  # binarize
+        output = x.div(keep_prob) * random_tensor
+        return output
 
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
@@ -166,7 +186,7 @@ class  LEG_Module(nn.Module):
         self.stage = stage
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
-        mlp_hidden_dim = int(dim * mlp_ratio)
+        mlp_hidden_dim = max(1, int(dim * mlp_ratio))  # Ensure at least 1 channel
         mlp_layer: List[nn.Module] = [
             Conv(dim, mlp_hidden_dim, 1),
             nn.Conv2d(mlp_hidden_dim, dim, 1, bias=False)]

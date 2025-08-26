@@ -49,7 +49,12 @@ from ultralytics.nn.modules import (
     DWConvTranspose2d,
     Focus,
     FDConv, # Add FDConv
-    # LEG_Module,
+    LEG_Module,
+    TextureAwareFeatureExtractor,
+    TextureAwareAnomalyModule,
+    EnhancedFDConv,
+    DynamicSparseConv,
+    AdaptiveFPN,
     GhostBottleneck,
     GhostConv,
     HGBlock,
@@ -1647,6 +1652,7 @@ def parse_model(d, ch, verbose=True):
             SCDown,
             C2fCIB,
             A2C2f,
+            LEG_Module,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments

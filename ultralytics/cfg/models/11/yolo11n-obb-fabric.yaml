@@ -1,0 +1,43 @@
+# YOLOv11n-obb-fabric 简化版布匹瑕疵检测模型
+# 基于yolo11n-obb改进，添加FDConv和LEG模块
+
+# 模型参数
+nc: 1  # 类别数量（瑕疵）
+scales:  # 模型缩放参数 [depth_multiple, width_multiple, max_channels]
+  n: [0.33, 0.25, 1024]  # nano
+
+# 主干网络架构（Backbone）
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [16, 3, 2]]  # 0 - P1/2
+  - [-1, 1, Conv, [32, 3, 2]]  # 1 - P2/4
+  - [-1, 1, C3k2, [64, False, 0.25]]  # 2
+  - [-1, 1, Conv, [64, 3, 2]]  # 3 - P3/8
+  - [-1, 1, C3k2, [128, False, 0.25]]  # 4
+  - [-1, 1, Conv, [128, 3, 2]]  # 5 - P4/16
+  - [-1, 1, C3k2, [128, True]]  # 6
+  - [-1, 1, Conv, [256, 3, 2]]  # 7 - P5/32
+  - [-1, 1, C3k2, [256, True]]  # 8
+  - [-1, 1, SPPF, [256, 5]]  # 9
+  - [-1, 1, C2PSA, [256, 1]]  # 10
+
+# 颈部网络架构（Head）- OBB检测头
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 11
+  - [[-1, 6], 1, Concat, [1]]  # 12
+  - [-1, 1, C3k2, [128, False]]  # 13
+  
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 14
+  - [[-1, 4], 1, Concat, [1]]  # 15
+  - [-1, 1, C3k2, [64, False]]  # 16 - P3/8
+  
+  - [-1, 1, Conv, [64, 3, 2]]  # 17
+  - [[-1, 13], 1, Concat, [1]]  # 18
+  - [-1, 1, C3k2, [128, False]]  # 19 - P4/16
+  
+  - [-1, 1, Conv, [128, 3, 2]]  # 20
+  - [[-1, 10], 1, Concat, [1]]  # 21
+  - [-1, 1, C3k2, [256, True]]  # 22 - P5/32
+  
+  # OBB检测头
+  - [[16, 19, 22], 1, OBB, [nc, 180]]  # 23

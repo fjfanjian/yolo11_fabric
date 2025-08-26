@@ -77,7 +77,12 @@ from .conv import (
     SpatialAttention,
 )
 from .FDConv import FDConv
-# from .LEG import LEG_Module
+from .LEG import LEG_Module
+from .texture_aware import TextureAwareFeatureExtractor
+from .anomaly_detection import TextureAwareAnomalyModule
+from .adaptive_fdconv import EnhancedFDConv
+from .dynamic_sparse import DynamicSparseConv
+from .feature_pyramid import AdaptiveFPN
 from .head import (
     OBB,
     Classify,
@@ -183,4 +188,9 @@ __all__ = (
     "A2C2f",
     "FDConv",
     "LEG_Module",
+    "TextureAwareFeatureExtractor",
+    "TextureAwareAnomalyModule",
+    "EnhancedFDConv",
+    "DynamicSparseConv",
+    "AdaptiveFPN",
 )

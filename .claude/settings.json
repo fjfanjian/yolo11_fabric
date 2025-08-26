@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --dangerously-skip-permissions)"
+    ]
+  },
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://whgtdu.esoul.net/api",
+    "ANTHROPIC_AUTH_TOKEN": "cr_43e69f1f75d2d1ae018bfe6e3c779dfbd125e680d217e335e2e2794077a54cc4"
+  },
+  "enableAllProjectMcpServers": true,
+  "statusLine": {
+    "type": "command",
+    "command": "npx ccusage statusline"
+  }
+}
